@@ -1,267 +1,299 @@
-# AlgoFrame Reliability V1
+# AlgoFrame
 
-Reliability V1 is the operational-safety layer for AlgoFrame Ultimate V5.3 + Product Polish V1.
+**AlgoFrame** is a desktop trading assistant for **Warframe** built around smarter market analysis, inventory management, and automated trading workflows.
 
-It implements the five reliability upgrades prioritized after the Product Polish milestone:
+It connects Warframe inventory data with live and historical data from [warframe.market](https://warframe.market) to help identify useful trades, manage listings, track performance, and reduce repetitive market work.
 
-1. authoritative trading lifecycle state machine
-2. crash-safe / idempotent WFM execution
-3. live-execution circuit breakers
-4. deterministic fake-market end-to-end reliability tests
-5. replay-based release gates for champion/challenger promotion
+The project is built with **Tauri, Rust, React, and SQLite**.
 
-## 1. Authoritative lifecycle state machine
+---
 
-AlgoFrame now records immutable lifecycle transitions for managed WTB/WTS decisions:
+## Overview
 
-```text
-Discovered
-→ Evaluated
-→ Approved
-→ Prepared
-→ Dispatching
-→ Active
-→ Partial
-→ Purchased
-→ Selling
-→ Sold
-```
+Warframe trading usually means repeatedly checking prices, comparing listings, updating orders, and trying to determine whether an item is actually worth buying.
 
-Terminal/exception states include:
+AlgoFrame brings those tasks together into one desktop application.
 
-```text
-Rejected
-Cancelled
-Superseded
-Expired
-Failed
-Unknown
-PaperSimulated
-```
+It is designed around three questions:
 
-Transitions are stored in `algoframe_lifecycle_event`.
+> What is worth buying?
 
-The learner's existing decision status remains intact; Reliability V1 synchronizes it into the execution lifecycle rather than replacing the ML dataset.
+> What is worth selling?
 
-## 2. Crash-safe / idempotent execution
+> Where should my platinum be allocated?
 
-Before AlgoFrame mutates a live WFM order it persists an execution journal entry.
+Rather than relying only on the current lowest or highest listing, AlgoFrame can use market statistics, live orders, inventory information, profit thresholds, price history, and configurable trading rules when evaluating items.
 
-```text
-decision
-→ PREPARED persisted to SQLite
-→ DISPATCHING persisted
-→ WFM mutation
-→ APPLIED persisted
-```
+---
 
-The execution ID is deterministic for:
+## Features
 
-```text
-decision + side + operation + price + quantity
-```
+### Live Market Trading
 
-so the same exact mutation is not blindly sent twice.
+AlgoFrame can monitor and manage supported listings on warframe.market.
 
-On startup, unresolved `Prepared`, `Dispatching`, or `Unknown` executions are reconciled against the current WFM order cache.
+It can:
 
-If AlgoFrame can prove that the target order exists with the expected decision ID, price and quantity, the execution becomes:
+- Create and update WTB orders
+- Create and update WTS orders
+- Monitor competing listings
+- Apply configurable profit requirements
+- Respect buy and sell price limits
+- Limit inventory accumulation
+- Manage available platinum across buy orders
+- Detect when listings are no longer worth maintaining
 
-```text
-Reconciled
-```
+---
 
-If it cannot prove the remote state, it becomes:
+### Market Analysis
 
-```text
-Unknown
-```
+Trading decisions can use information such as:
 
-and the circuit breaker freezes new live execution instead of guessing whether it is safe to retry.
+- Current buy orders
+- Current sell orders
+- Historical prices
+- Moving averages
+- Trading volume
+- Profit
+- Profit margin
+- Supply and demand
+- Price movement
+- Trading tax
+- Existing inventory
 
-Deletes use desired-state reconciliation: if the target WFM order is absent, the delete is treated as reconciled.
+AlgoFrame is being developed toward a more advanced opportunity-scoring system that considers not only raw profit, but also liquidity, turnover, competition, price stability, and capital efficiency.
 
-## 3. Circuit breakers
+---
 
-Live WTB/WTS execution can be frozen by:
+### Warframe Inventory
 
-- manual operator freeze
-- model health below the reliability floor
-- model fallback mode
-- poor market-data quality
-- extreme anomaly score
-- too many recent execution failures
-- excessive order-mutation rate
-- unresolved/unknown remote execution state
-- daily realized-loss threshold
+AlgoFrame can analyze tradable inventory and connect owned items directly to market information.
 
-Paper mode continues to be safe and does not perform live WFM mutations.
+Supported categories include:
 
-The breaker also protects the live-scraper pre-pass and portfolio deletion pass from deleting managed orders while execution is frozen.
+- Prime parts
+- Prime sets
+- Mods
+- Arcanes
+- Relics
+- Rivens
+- Syndicate items
 
-The Reliability tab exposes:
+Inventory views can display owned quantities, estimated market value, completion state for sets, and available listing actions.
 
-- current breaker state
-- reasons
-- recent failures/actions
-- unknown executions
-- daily realized loss
-- manual Freeze / Clear controls
+---
 
-## 4. Deterministic fake-market E2E suite
+### Price Discovery
 
-Reliability V1 includes a pure deterministic test harness covering:
+Not every Warframe item has equally reliable historical pricing.
 
-- normal buy → fill → sell lifecycle
-- partial fill before completion
-- rejected opportunity
-- crash after dispatch → Unknown instead of duplicate retry
-- Paper decision that never enters live execution
+AlgoFrame can combine multiple pricing sources and retain discovered values locally so inventory analysis does not depend entirely on one dataset.
 
-The suite is available both as Rust tests and from the AlgoFrame Reliability UI.
+This makes it possible to evaluate significantly more of an account's inventory without continuously requesting the same market information.
 
-## 5. Replay-based release gate
+---
 
-Future challenger policies cannot be promoted only because their average reward looks better.
+### Trade Tracking
 
-Before automatic champion/challenger promotion, the release gate checks:
+Trading data can be stored locally and used to review performance over time.
 
-- minimum sample count
-- doubly-robust / realized reward uplift
-- failure-rate delta
-- candidate maximum drawdown
-- non-overlapping confidence evidence
-- walk-forward stability
-- leakage detector
-- synthetic stress-test pass fraction
+Examples include:
 
-Release-gate reports are persisted in `algoframe_release_gate`.
+- Purchases
+- Sales
+- Revenue
+- Expenses
+- Profit
+- Profit margins
+- Item performance
+- Price history
 
-Manual evaluation is available from the Reliability tab.
+This data can also be used later to improve AlgoFrame's trading decisions.
 
-## New SQLite tables
+---
 
-Migration `m20261005_000002_create_algoframe_reliability.rs` adds:
+## Trading System
+
+AlgoFrame's trading system begins by filtering the wider Warframe market into a smaller set of possible opportunities.
+
+A simplified flow looks like this:
 
 ```text
-algoframe_execution_journal
-algoframe_lifecycle_event
-algoframe_circuit_event
-algoframe_release_gate
+Market Data
+    │
+    ▼
+Candidate Filtering
+    │
+    ▼
+Live Order Analysis
+    │
+    ▼
+Profit / Risk Evaluation
+    │
+    ▼
+Capital Allocation
+    │
+    ▼
+WTB / WTS Management
 ```
 
-Reliability configuration is stored in the existing `algoframe_setting` table.
+Current filters and rules can include metrics such as volume, profit, margin, price movement, market price, trading tax, and inventory limits.
 
-## UI
+The long-term direction is to move from simple threshold-based selection toward opportunity scoring.
 
-Product Polish's command center gains a new:
+For example:
 
 ```text
-Reliability
+Opportunity Score
+
+Expected Profit
+× Liquidity
+× Turnover
+× Execution Confidence
+× Capital Efficiency
+- Market Risk
 ```
 
-tab with:
+This allows two items with similar theoretical profit to be treated differently when one trades significantly faster or has a more stable market.
 
-- circuit-breaker status/control
-- deterministic fake-market test runner
-- replay release-gate report
-- crash-safe execution journal
+---
 
-The global header also changes to:
+## Technology
+
+AlgoFrame uses a lightweight desktop architecture.
+
+**Tauri 2**  
+Desktop runtime and native integration.
+
+**Rust**  
+Market processing, application services, trading logic, database access, and local integrations.
+
+**React**  
+User interface.
+
+**Mantine**  
+UI component framework.
+
+**SQLite / SeaORM**  
+Local application and trading data.
+
+**TanStack Query**  
+Frontend server-state management.
+
+---
+
+## Local Data
+
+AlgoFrame stores application data locally.
+
+The exact directory depends on the application identifier used by the build.
+
+Typical stored data can include:
 
 ```text
-EXECUTION FROZEN
+Database
+Settings
+Authentication data
+Market caches
+Inventory caches
+Price history
+Logs
 ```
 
-when the circuit breaker is tripped.
+Sensitive account information and locally captured Warframe data should never be committed to the repository.
 
-## Install
+---
 
-This package expects:
+## Development
 
-- Ultimate V5.3 installed and compiling
-- Product Polish V1 installed
+### Requirements
 
-Extract into the repository and run:
+You will need:
 
-```powershell
-.\Apply-AlgoFrameReliabilityV1.ps1 -RepoRoot "."
+- Node.js
+- pnpm
+- Rust
+- Tauri 2 prerequisites
+
+Install the frontend dependencies:
+
+```bash
+pnpm install
 ```
 
-Then:
+Run AlgoFrame in development mode:
 
-```powershell
-.\Validate-AlgoFrameReliabilityV1.ps1 -RepoRoot "."
-```
-
-The validator automatically formats Rust first, then runs:
-
-```text
-cargo test --manifest-path src-tauri/Cargo.toml algoframe
-cargo check --manifest-path src-tauri/Cargo.toml
-pnpm build
-```
-
-Finally:
-
-```powershell
+```bash
 pnpm tauri dev
 ```
 
-## First run
+Run the frontend separately:
 
-Keep AlgoFrame in Paper mode first.
-
-The new reliability migration is applied on application startup, so the Reliability tab should be tested after `pnpm tauri dev` has successfully initialized the database.
-
-## Rollback
-
-The installer backs up every source file it touches to:
-
-```text
-.algoframe-reliability-v1-backup
+```bash
+pnpm dev
 ```
 
-and checkpoints the current SQLite database as:
+Create a desktop build:
 
-```text
-quantframeV2.sqlite.pre-reliability
+```bash
+pnpm tauri build
 ```
 
-If installation itself fails, touched source files are restored automatically.
+---
 
-## Important scope
+## Project Direction
 
-Reliability V1 journals and reconciles AlgoFrame-managed WTB/WTS mutations.
+AlgoFrame is intended to go beyond simply automating listing updates.
 
-It also circuit-breaker-protects the main live-scraper cleanup/portfolio deletion paths. Wishlist and syndicate workflows remain their existing QuantFrame workflows and are not yet represented as AlgoFrame ML lifecycle decisions.
+Planned areas of improvement include:
 
+- Better WTB opportunity detection
+- Smarter WTS pricing
+- Liquidity-aware trading
+- Order-book analysis
+- Price-outlier detection
+- Adaptive repricing
+- Better platinum allocation
+- Inventory opportunity ranking
+- Trade-performance feedback
+- Improved analytics
+- More reliable service handling
+- Better diagnostics and debugging tools
 
-## Manual resolution of unknown executions
+The eventual goal is for AlgoFrame to rank trading opportunities by how useful they actually are, rather than only by their theoretical price difference.
 
-If an execution is `Unknown`, AlgoFrame does **not** retry it automatically.
+---
 
-The Reliability tab requires the operator to verify the current WFM state and choose one of:
+## Attribution
 
-```text
-Verified applied
-Safe to retry
-Not applied
-```
+AlgoFrame is based on the open-source **QuantFrame** project created by **Kenya-DK**:
 
-This is intentional. An uncertain remote mutation is exactly the situation where automatic retry can create duplicate or contradictory orders.
+https://github.com/Kenya-DK/quantframe-react
 
-## Configurable safety thresholds
+AlgoFrame is an independently modified project and is not an official QuantFrame release.
 
-The Reliability tab exposes the main hard execution limits:
+---
 
-- minimum model health
-- maximum anomaly score
-- failures before freeze
-- maximum actions per minute
-- daily realized-loss limit
-- prepared-execution timeout
-- release-gate minimum samples
-- release-gate required reward uplift
+## Disclaimer
 
-These controls are separate from the learner's prediction settings.
+AlgoFrame is an unofficial community project.
+
+It is not affiliated with or endorsed by:
+
+- Digital Extremes
+- Warframe
+- warframe.market
+
+Warframe and related trademarks are property of Digital Extremes.
+
+Market automation and trading features should be used responsibly.
+
+---
+
+## License
+
+AlgoFrame is derived from software distributed under the **GNU General Public License v3.0**.
+
+See the repository's `LICENSE` file for the full license terms.
+
+Original copyright and attribution requirements remain applicable to modified versions.
