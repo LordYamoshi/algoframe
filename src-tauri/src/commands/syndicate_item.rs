@@ -68,10 +68,7 @@ pub async fn syndicate_item_import_items(
             );
             track_event!(
                 EventType::SyndicateItemImport,
-                [
-                    ("success", "false".to_string()),
-                    ("error_type", error_type),
-                ]
+                [("success", "false".to_string()), ("error_type", error_type),]
             );
             return Err(err);
         }

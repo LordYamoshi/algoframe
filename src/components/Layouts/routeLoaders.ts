@@ -2,12 +2,14 @@ type RouteLoader = () => Promise<unknown>;
 
 export const routeLoaders = {
   home: () => import("@pages/home"),
+  algoframeHub: () => import("@pages/algoframe"),
   login: () => import("@pages/auth/login"),
   debug: () => import("@pages/debug"),
   error: () => import("@pages/error"),
   banned: () => import("@pages/banned"),
   liveScraper: () => import("@pages/live_scraper"),
   tradingAnalytics: () => import("@pages/trading_analytics"),
+  learning: () => import("@pages/learning"),
   warframeMarket: () => import("@pages/warframe_market"),
   chat: () => import("@pages/chat"),
   tradeMessages: () => import("@pages/trade_messages"),
@@ -34,9 +36,11 @@ export const prefetchRoutes = (keys: RouteLoaderKey[]) => {
 
 export const prefetchLoggedInRoutes = () => {
   prefetchRoutes([
+    "algoframeHub",
     "home",
     "liveScraper",
     "tradingAnalytics",
+    "learning",
     "tradeMessages",
     "warframeMarket",
     "chat",

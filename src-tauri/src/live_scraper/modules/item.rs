@@ -13,12 +13,16 @@ use wf_market::{
 };
 
 use crate::{
+    algoframe::{
+        LearningStore, MarketSnapshot, OperatingMode, ReliabilityService, UltimateLearningEngine,
+    },
     app::{AppState, Settings},
     cache::types::{CacheTradableItem, ItemPriceInfo},
     utils::OrderListExt,
 };
 use crate::{
-    enums::TradeMode, live_scraper::*, send_event, types::*, utils::modules::states, utils::SubTypeExt, DATABASE,
+    enums::TradeMode, live_scraper::*, send_event, types::*, utils::modules::states,
+    utils::SubTypeExt, DATABASE,
 };
 
 static COMPONENT: &str = "LiveScraper:Item:";
@@ -115,9 +119,19 @@ impl ItemModule {
         // Get My Orders from Warframe Market.
         let my_orders = app.wfm_client.order().cache_orders();
 
-        // Delete unwanted orders
-        self.delete_unwanted_orders(&app, &app.settings, &my_orders)
-            .await?;
+        // Delete unwanted orders only in a live mode. Paper mode observes and
+        // learns without mutating Warframe Market.
+        let algo_config = LearningStore::load_config(DATABASE.get().unwrap())
+            .await
+            .unwrap_or_default();
+
+        let reliability_prepass_breaker =
+            ReliabilityService::circuit_breaker_status(DATABASE.get().unwrap(), None, None).await?;
+
+        if algo_config.mode != OperatingMode::Paper && !reliability_prepass_breaker.tripped {
+            self.delete_unwanted_orders(&app, &app.settings, &my_orders)
+                .await?;
+        }
 
         // Collect interesting items
         let interesting_items = collect_interesting_items(&app, COMPONENT, &app.settings).await?;
@@ -141,6 +155,23 @@ impl ItemModule {
         let client = self.client.upgrade().expect("Client should not be dropped");
         let use_fake = app.settings.debugging.live_scraper.fake_orders;
         let mut current_index = 1;
+
+        let current_orders = app.wfm_client.order().cache_orders();
+        let mut learning =
+            UltimateLearningEngine::load(DATABASE.get().unwrap(), &current_orders).await?;
+
+        info(
+            comp("Learning"),
+            &format!(
+                "Loaded Ultimate V5 | transactions={} | decisions={} | snapshots={} | health={:.0}% | mode={:?}",
+                learning.transaction_count(),
+                learning.decision_count(),
+                learning.snapshot_count(),
+                learning.health().score * 100.0,
+                learning.config().mode
+            ),
+            &&LoggerOptions::default(),
+        );
 
         // Snapshot existing buy order IDs before any processing this cycle
         let existing_buy_order_ids: HashSet<String> = app
@@ -218,6 +249,18 @@ impl ItemModule {
             // Add Market Info to ItemEntry
             item_entry.apply_market_info(&orders);
 
+            // The user's own WFM orders were filtered above, so this snapshot
+            // represents the external market and avoids self-feedback loops.
+            let buy_prices = orders.get_price_list(OrderType::Buy, None);
+            let sell_prices = orders.get_price_list(OrderType::Sell, None);
+            let market_snapshot = learning.observe_market(
+                &item_info,
+                &item_entry.sub_type,
+                &item_price,
+                &buy_prices,
+                &sell_prices,
+            );
+
             info(
                 &comp("ProcessItem"),
                 &format!(
@@ -234,7 +277,14 @@ impl ItemModule {
 
             if item_entry.operations.has("Buy") && !item_entry.operations.has("WishList") {
                 if let Err(e) = self
-                    .progress_buying(&item_info, item_entry, &item_price, &orders)
+                    .progress_buying(
+                        &item_info,
+                        item_entry,
+                        &item_price,
+                        &orders,
+                        &market_snapshot,
+                        &mut learning,
+                    )
                     .await
                 {
                     return Err(e.with_location(get_location!()));
@@ -272,7 +322,14 @@ impl ItemModule {
             // Process selling logic (future expansion)
             if item_entry.operations.has("Sell") && item_entry.stock_id.is_some() {
                 if let Err(e) = self
-                    .progress_selling(&item_info, item_entry, &item_price, &orders)
+                    .progress_selling(
+                        &item_info,
+                        item_entry,
+                        &item_price,
+                        &orders,
+                        &market_snapshot,
+                        &mut learning,
+                    )
                     .await
                 {
                     return Err(e.with_location(get_location!()));
@@ -309,51 +366,63 @@ impl ItemModule {
             current_index += 1;
         }
 
-        // Global knapsack pass: run once on all cached orders after all items processed
-        let wishlist_wfm_ids: HashSet<&str> = interesting_items
+        // Portfolio-level capital/risk allocation.
+        let wishlist_wfm_ids: HashSet<String> = interesting_items
             .iter()
             .filter(|entry| entry.operations.has("WishList"))
-            .map(|entry| entry.wfm_id.as_str())
-            .collect();
-
-        let all_buy_orders: Vec<_> = app
-            .wfm_client
-            .order()
-            .cache_orders()
-            .extract_order_summary(OrderType::Buy)
-            .into_iter()
-            .filter(|order| !wishlist_wfm_ids.contains(order.2.as_str()))
+            .map(|entry| entry.wfm_id.clone())
             .collect();
 
         let max_total_price_cap = app.settings.live_scraper.items.wtb.max_total_price_cap;
-        if all_buy_orders.len() > 1 && !is_disabled(max_total_price_cap) {
+
+        let portfolio_breaker = ReliabilityService::circuit_breaker_status(
+            DATABASE.get().unwrap(),
+            None,
+            Some(learning.health()),
+        )
+        .await?;
+
+        if !learning.is_paper_mode()
+            && !portfolio_breaker.tripped
+            && !is_disabled(max_total_price_cap)
+        {
+            let cached_orders = app.wfm_client.order().cache_orders();
+            let portfolio =
+                learning.portfolio_select(&cached_orders, max_total_price_cap, &wishlist_wfm_ids);
+
             info(
-                &comp("GlobalKnapsack"),
+                &comp("Portfolio"),
                 &format!(
-                    "Running global knapsack check: {} buy orders | Cap: {}",
-                    all_buy_orders.len(),
-                    max_total_price_cap
+                    "Portfolio allocation: selected={} rejected={} allocated={:.0}p reserved={:.0}p",
+                    portfolio.selected_order_ids.len(),
+                    portfolio.rejected_order_ids.len(),
+                    portfolio.state.allocated_capital,
+                    portfolio.state.reserved_capital,
                 ),
                 &&LoggerOptions::default(),
             );
-            let (_, unselected) = knapsack(all_buy_orders, max_total_price_cap);
-            if !unselected.is_empty() {
-                let component = comp("GlobalKnapsack");
-                for order in &unselected {
-                    if order.3.is_empty() || !existing_buy_order_ids.contains(&order.3) {
-                        // Skip orders created this cycle — let them survive until next check
-                        continue;
-                    }
-                    if let Err(err) = app.wfm_client.order().delete(&order.3).await {
-                        error(
-                            &component,
-                            &format!("Failed to delete {}: {}", order.3, err),
-                            &&LoggerOptions::default().set_file(LOG_FILE),
-                        );
-                    }
+
+            for order_id in &portfolio.rejected_order_ids {
+                if !existing_buy_order_ids.contains(order_id) {
+                    // Let orders created this cycle survive until the next
+                    // cycle so their first outcome can be observed.
+                    continue;
+                }
+
+                if let Err(err) = app.wfm_client.order().delete(order_id).await {
+                    error(
+                        &comp("Portfolio"),
+                        &format!(
+                            "Failed to delete rejected portfolio order {}: {}",
+                            order_id, err
+                        ),
+                        &&LoggerOptions::default().set_file(LOG_FILE),
+                    );
                 }
             }
         }
+
+        learning.flush(DATABASE.get().unwrap()).await?;
 
         Ok(())
     }
@@ -365,6 +434,8 @@ impl ItemModule {
         entry: &mut ItemEntry,
         price: &ItemPriceInfo,
         live_orders: &OrderList<OrderWithUser>,
+        market_snapshot: &MarketSnapshot,
+        learning: &mut UltimateLearningEngine,
     ) -> Result<(), Error> {
         let conn = DATABASE.get().unwrap();
         let log_options = &LoggerOptions::default().set_enable(true);
@@ -386,7 +457,7 @@ impl ItemModule {
         let wfm_client = states::app_state()?.wfm_client;
 
         // Get the per-trade quantity for this item, based on its type and settings
-        let per_trade = get_per_trade(
+        let mut per_trade = get_per_trade(
             item_info.bulk_tradable,
             entry.get_quantity(OrderType::Buy),
             false,
@@ -402,7 +473,7 @@ impl ItemModule {
         let profit_threshold = settings.wtb.profit_threshold;
 
         // Current market snapshot for this item's buy orders
-        let market_info = &entry.buy_market_info;
+        let market_info = entry.buy_market_info.clone();
 
         // Determine the initial post price based on market conditions
         let mut post_price = market_info.highest_price;
@@ -428,125 +499,153 @@ impl ItemModule {
                     "Item {} already has {} units in stock (max: {}). Skipping WTB order creation.",
                     item_info.name, stock_item.owned, max_stock_quantity
                 ));
-                if let Err(e) = delete_order(
-                    &component,
-                    entry,
-                    OrderType::Buy,
-                    &states::app_state()?.wfm_client,
-                )
-                .await
-                {
-                    return Err(e
-                        .with_location(get_location!())
-                        .with_context(entry.to_json()));
+                if !learning.is_paper_mode() {
+                    let max_stock_breaker = ReliabilityService::circuit_breaker_status(
+                        conn,
+                        Some(market_snapshot),
+                        Some(learning.health()),
+                    )
+                    .await?;
+
+                    if !max_stock_breaker.tripped {
+                        if let Err(e) = delete_order(
+                            &component,
+                            entry,
+                            OrderType::Buy,
+                            &states::app_state()?.wfm_client,
+                        )
+                        .await
+                        {
+                            return Err(e
+                                .with_location(get_location!())
+                                .with_context(entry.to_json()));
+                        }
+
+                        log(&format!(
+                            "Deleted WTB order for item {} due to max stock quantity.",
+                            item_info.name
+                        ));
+                    } else {
+                        log("Reliability circuit breaker prevented max-stock order deletion.");
+                    }
                 }
-                log(&format!(
-                    "Deleted WTB order for item {} due to max stock quantity.",
-                    item_info.name
-                ));
                 return Ok(());
             }
         }
 
-        // Handle Max Price Drop & Min Listings Below
-        if let Some(reason) = should_apply_max_price_drop(
-            settings.wtb.max_price_drop,
-            settings.wtb.min_listings_below,
-            current_order_price,
-            post_price,
-            live_orders.get_price_list(OrderType::Buy, None),
-            OrderType::Buy,
-        ) {
-            post_price = current_order_price;
-            trade_operations.add(reason);
+        let mut intent = learning.plan_buy(
+            item_info,
+            &entry.sub_type,
+            price,
+            market_snapshot,
+            profit_threshold,
+            settings.wtb.min_wtb_profit_margin,
+            entry.get_quantity(OrderType::Buy),
+            max_total_price_cap,
+        );
+
+        if intent.allowed {
+            learning.apply_repricing_hysteresis(
+                &mut intent,
+                current_order_price,
+                &properties,
+                market_snapshot,
+                0,
+            );
+            post_price = intent.price.max(1);
+            entry.set_quantity(OrderType::Buy, intent.quantity);
+            per_trade = get_per_trade(
+                item_info.bulk_tradable,
+                entry.get_quantity(OrderType::Buy),
+                false,
+            );
+        } else {
+            trade_operations.add("AlgoFrameMLRejected");
+            trade_operations.add("Delete");
         }
 
-        // How far above (positive) or below (negative) our post price is from the market average.
-        // Used to gauge whether we're overpaying relative to recent trades.
-        let closed_avg_metric = closed_avg as i64 - post_price;
+        // Existing user-configured safety rules remain hard constraints above ML.
+        if current_order_price > 0 {
+            if let Some(reason) = should_apply_max_price_drop(
+                settings.wtb.max_price_drop,
+                settings.wtb.min_listings_below,
+                current_order_price,
+                post_price,
+                live_orders.get_price_list(OrderType::Buy, None),
+                OrderType::Buy,
+            ) {
+                post_price = current_order_price;
+                trade_operations.add(reason.clone());
+                learning.revise_intent_price(&mut intent, post_price, 0, reason);
+            }
+        }
 
-        // Rough expected profit: the margin between our buy price and the average sell price, minus 1 plat buffer.
-        let potential_profit = closed_avg_metric - 1;
-
-        // Per-item max price cap — if this item has a specific max configured, clamp the post price.
         let item_max_price = settings.general.get_item_max_price(&item_info.wfm_id);
         if item_max_price > 0 && post_price > item_max_price {
             trade_operations.add("AboveMaxBuyPrice");
             post_price = item_max_price;
+            learning.revise_intent_price(&mut intent, post_price, 0, "per-item maximum buy price");
         }
 
-        // Global average price cap — if post price exceeds it, mark for deletion regardless of other checks.
         if !is_disabled(avg_price_cap) && post_price > avg_price_cap {
             trade_operations.add("AboveAvgPrice");
             trade_operations.add("Delete");
-
-            log(&format!(
-                "Item {} is above the average price cap.",
-                item_info.name
-            ));
+            learning.reject_intent(
+                &mut intent,
+                format!(
+                    "hard average-price cap: {}p exceeds {}p",
+                    post_price, avg_price_cap
+                ),
+            );
         }
 
-        // Knapsack solver: enforces a total platinum budget across all buy orders.
-        // Given the cap and all existing orders + this item, it selects the most profitable subset.
-        // Items not selected get deferred deletion (cleaned up by the global pass in process_items).
-        if !is_disabled(max_total_price_cap) {
-            let mut all_orders = wfm_client
-                .order()
-                .cache_orders()
-                .extract_order_summary(OrderType::Buy);
-            if !all_orders.iter().any(|i| i.2 == item_info.wfm_id) {
-                all_orders.push((
-                    post_price,
-                    potential_profit as f64,
-                    item_info.wfm_id.clone(),
-                    String::new(),
-                ));
-            }
+        // Re-check the user's hard profitability constraints after all
+        // execution safeguards/hysteresis have potentially changed the price.
+        if intent.allowed {
+            let adjusted_profit = intent.expected_sell_price - post_price as f64;
 
-            log(&format!(
-                "Knapsack Input: {} | Buy orders | Cap: {}",
-                all_orders.len(),
-                max_total_price_cap
-            ));
-            let (selected, unselected) = knapsack(all_orders, max_total_price_cap);
-            log(&format!(
-                "Knapsack selected {}/{} buy orders for {}.",
-                selected.len(),
-                selected.len() + unselected.len(),
-                item_info.name
-            ));
+            let adjusted_margin = if post_price > 0 {
+                adjusted_profit / post_price as f64 * 100.0
+            } else {
+                0.0
+            };
 
-            let selected_ids: HashSet<_> = selected.iter().map(|o| &o.2).collect();
-
-            if !selected_ids.contains(&item_info.wfm_id) {
-                log(&format!("{} was not selected.", item_info.name));
-                trade_operations.add("Skip");
+            if !is_disabled(profit_threshold) && adjusted_profit < profit_threshold as f64 {
+                trade_operations.add("BelowProfitAfterGuardrails");
                 trade_operations.add("Delete");
-                return Ok(());
+                learning.reject_intent(
+                    &mut intent,
+                    format!(
+                        "hard minimum profit: {:.1}p is below {}p after execution safeguards",
+                        adjusted_profit, profit_threshold
+                    ),
+                );
             }
 
-            for order in &unselected {
-                log(&format!(
-                    "Deferred deletion of unselected order {} for item {} (will delete after all items processed).",
-                    order.3, order.2
-                ));
+            if intent.allowed
+                && !is_disabled(settings.wtb.min_wtb_profit_margin)
+                && adjusted_margin < settings.wtb.min_wtb_profit_margin as f64
+            {
+                trade_operations.add("BelowMarginAfterGuardrails");
+                trade_operations.add("Delete");
+                learning.reject_intent(
+                    &mut intent,
+                    format!(
+                        "hard minimum margin: {:.1}% is below {}% after execution safeguards",
+                        adjusted_margin, settings.wtb.min_wtb_profit_margin
+                    ),
+                );
             }
         }
 
-        // If our post price is higher than the market average, flag as overpriced.
-        if closed_avg_metric < 0 {
-            trade_operations.add("Delete");
-            trade_operations.add("Overpriced");
-        }
-
-        // If the spread between lowest and highest buy orders is too narrow, not worth competing.
-        if market_info.price_range < profit_threshold {
-            trade_operations.add("Delete");
-            trade_operations.add("Underpriced");
-        }
-
-        // Warframe Market prices cannot be below 1 platinum.
         post_price = post_price.max(1);
+
+        let closed_avg_metric = closed_avg as i64 - post_price;
+        let potential_profit = if intent.allowed {
+            intent.reward.expected_profit.round() as i64
+        } else {
+            closed_avg_metric - 1
+        };
 
         // Attach trade-operation metadata to the order properties
         populate_order_properties(&mut properties, item_info, entry, &trade_operations);
@@ -560,6 +659,17 @@ impl ItemModule {
             live_orders,
             OrderType::Buy,
         );
+
+        properties.set_property_value("algoframe_volatility", market_snapshot.features.volatility);
+        properties.set_property_value(
+            "algoframe_family",
+            crate::algoframe::math::family_from_name(&item_info.name),
+        );
+
+        if intent.allowed {
+            UltimateLearningEngine::mark_repriced(&mut properties, current_order_price, post_price);
+            learning.apply_intent_to_properties(&mut properties, &intent);
+        }
 
         log_summary(
             &component,
@@ -586,8 +696,53 @@ impl ItemModule {
             ),
             log_options,
         );
+        ReliabilityService::record_intent(conn, &intent).await?;
+
+        if learning.is_paper_mode() {
+            log(&format!(
+                "Paper mode: would {} {}x at {}p (decision {}).",
+                if intent.allowed {
+                    "place WTB for"
+                } else {
+                    "skip"
+                },
+                entry.get_quantity(OrderType::Buy),
+                post_price,
+                intent.decision_id
+            ));
+            return Ok(());
+        }
+
+        let operation = if trade_operations.has("Delete") {
+            "delete"
+        } else {
+            "upsert"
+        };
+
+        let permit = ReliabilityService::prepare_execution(
+            conn,
+            &intent,
+            operation,
+            post_price,
+            entry.get_quantity(OrderType::Buy),
+            current_order_price,
+            market_snapshot,
+            learning.health(),
+        )
+        .await?;
+
+        if !permit.should_execute {
+            log(&format!(
+                "Reliability layer blocked/no-op execution {}: {}",
+                permit.execution_id, permit.reason
+            ));
+            return Ok(());
+        }
+
+        ReliabilityService::mark_dispatching(conn, &permit.execution_id).await?;
+
         // Create, update, or remove the live market order.
-        if let Err(e) = progress_order(
+        match progress_order(
             &component,
             entry,
             &wfm_client,
@@ -600,19 +755,36 @@ impl ItemModule {
         )
         .await
         {
-            if e.cause == "CooldownError" {
-                let cooldown_info = get_cooldown(&e.properties);
-                log(&format!(
-                    "Item {} is on cooldown ({}). Skipping update.",
-                    item_info.name,
-                    cooldown_info.format_remaining()
-                ));
-            } else {
-                return Err(e
-                    .with_location(get_location!())
-                    .with_context(entry.to_json()));
+            Ok(_) => {
+                ReliabilityService::mark_applied(conn, &permit.execution_id).await?;
+            }
+            Err(e) => {
+                if e.cause == "CooldownError" {
+                    ReliabilityService::mark_noop(
+                        conn,
+                        &permit.execution_id,
+                        "WFM cooldown prevented mutation",
+                    )
+                    .await?;
+
+                    let cooldown_info = get_cooldown(&e.properties);
+                    log(&format!(
+                        "Item {} is on cooldown ({}). Skipping update.",
+                        item_info.name,
+                        cooldown_info.format_remaining()
+                    ));
+                } else {
+                    let error_message = e.to_string();
+                    ReliabilityService::mark_uncertain(conn, &permit.execution_id, &error_message)
+                        .await?;
+
+                    return Err(e
+                        .with_location(get_location!())
+                        .with_context(entry.to_json()));
+                }
             }
         }
+
         Ok(())
     }
 
@@ -623,6 +795,8 @@ impl ItemModule {
         entry: &mut ItemEntry,
         price: &ItemPriceInfo,
         live_orders: &OrderList<OrderWithUser>,
+        market_snapshot: &MarketSnapshot,
+        learning: &mut UltimateLearningEngine,
     ) -> Result<(), Error> {
         let conn = DATABASE.get().unwrap();
         let log_options = &LoggerOptions::default();
@@ -647,7 +821,7 @@ impl ItemModule {
         let closed_avg = price.moving_avg.unwrap_or(0.0) as i64;
         let mut stock_item = entry.get_stock_item_or_error(conn).await?;
         let bought_price = stock_item.bought;
-        let market_info = &entry.sell_market_info;
+        let market_info = entry.sell_market_info.clone();
 
         // Fetch existing order details and prepare mutable state
         let (_, current_order_price, mut properties, mut trade_operations) =
@@ -668,7 +842,7 @@ impl ItemModule {
         );
 
         // Get the per-trade quantity for this item, based on its type and settings
-        let per_trade = get_per_trade(
+        let mut per_trade = get_per_trade(
             item_info.bulk_tradable,
             entry.get_quantity(OrderType::Sell),
             is_bulk,
@@ -724,8 +898,47 @@ impl ItemModule {
             0
         };
 
-        // Start with the lowest competitor price as the initial post price
-        let mut post_price = lowest_price;
+        let algoframe_flat_minimum_profit = min_profit.unwrap_or(settings.wts.min_profit);
+        let algoframe_minimum_profit = minimum_profit_threshold(
+            bought_price,
+            algoframe_flat_minimum_profit,
+            settings.wts.min_profit_percentage,
+        );
+
+        let mut intent = learning.plan_sell(
+            item_info,
+            &entry.sub_type,
+            price,
+            market_snapshot,
+            algoframe_minimum_profit,
+            entry.get_quantity(OrderType::Sell),
+            bought_price,
+            current_order_price,
+        );
+
+        if !intent.allowed {
+            log(&format!(
+                "AlgoFrame chose not to change the WTS for {}: {:?}",
+                item_info.name, intent.explanation.negative_factors
+            ));
+            return Ok(());
+        }
+
+        learning.apply_repricing_hysteresis(
+            &mut intent,
+            current_order_price,
+            &properties,
+            market_snapshot,
+            bought_price,
+        );
+
+        let mut post_price = intent.price.max(1);
+        entry.set_quantity(OrderType::Sell, intent.quantity);
+        per_trade = get_per_trade(
+            item_info.bulk_tradable,
+            entry.get_quantity(OrderType::Sell),
+            is_bulk,
+        );
 
         // Clamp to per-item minimum price if set
         if let Some(min_price) = min_price {
@@ -737,13 +950,19 @@ impl ItemModule {
                 ));
                 post_price = capped_price;
                 trade_operations.add("MinimumPrice");
+                learning.revise_intent_price(
+                    &mut intent,
+                    post_price,
+                    bought_price,
+                    "configured minimum sell price",
+                );
             }
         }
 
         // Prevent prices from dropping too fast relative to existing order
         if let Some(reason) = should_apply_max_price_drop(
-            settings.wtb.max_price_drop,
-            settings.wtb.min_listings_below,
+            settings.wts.max_price_drop,
+            settings.wts.min_listings_below,
             current_order_price,
             post_price,
             live_orders.get_price_list(OrderType::Sell, None),
@@ -754,7 +973,8 @@ impl ItemModule {
                 item_info.name, reason
             ));
             post_price = current_order_price;
-            trade_operations.add(reason);
+            trade_operations.add(reason.clone());
+            learning.revise_intent_price(&mut intent, post_price, bought_price, reason);
         }
 
         let minimum_sma = min_sma.unwrap_or(settings.wts.min_sma);
@@ -770,6 +990,7 @@ impl ItemModule {
             ));
             post_price = closed_avg;
             trade_operations.add("SMALimit");
+            learning.revise_intent_price(&mut intent, post_price, bought_price, "SMA safety floor");
             stock_item.set_list_price(Some(post_price));
             stock_item.set_status(StockStatus::SMALimit);
             stock_item.locked = true;
@@ -796,6 +1017,12 @@ impl ItemModule {
             stock_item.locked = true;
             trade_operations.add("LowProfit");
             profit = post_price - bought_price;
+            learning.revise_intent_price(
+                &mut intent,
+                post_price,
+                bought_price,
+                "minimum-profit safety rule",
+            );
         }
 
         // Warframe Market prices cannot be below 1 platinum.
@@ -813,6 +1040,14 @@ impl ItemModule {
             live_orders,
             OrderType::Sell,
         );
+
+        properties.set_property_value("algoframe_volatility", market_snapshot.features.volatility);
+        properties.set_property_value(
+            "algoframe_family",
+            crate::algoframe::math::family_from_name(&item_info.name),
+        );
+        UltimateLearningEngine::mark_repriced(&mut properties, current_order_price, post_price);
+        learning.apply_intent_to_properties(&mut properties, &intent);
 
         log_summary(
             &component,
@@ -846,6 +1081,49 @@ impl ItemModule {
             log_options,
         );
 
+        ReliabilityService::record_intent(conn, &intent).await?;
+
+        if learning.is_paper_mode() {
+            log(&format!(
+                "Paper mode: would place WTS {}x at {}p (decision {}).",
+                entry.get_quantity(OrderType::Sell),
+                post_price,
+                intent.decision_id
+            ));
+            return Ok(());
+        }
+
+        let operation = if trade_operations.has("Delete") {
+            "delete"
+        } else {
+            "upsert"
+        };
+
+        let permit = ReliabilityService::prepare_execution(
+            conn,
+            &intent,
+            operation,
+            post_price,
+            entry.get_quantity(OrderType::Sell),
+            current_order_price,
+            market_snapshot,
+            learning.health(),
+        )
+        .await?;
+
+        if !permit.should_execute {
+            log(&format!(
+                "Reliability layer blocked/no-op execution {}: {}",
+                permit.execution_id, permit.reason
+            ));
+            entry
+                .finalize_stock_item(conn, &component, &mut stock_item, log_options)
+                .await?;
+            return Ok(());
+        }
+
+        ReliabilityService::mark_dispatching(conn, &permit.execution_id).await?;
+
         // If the item is not hidden and not locked, set its status to Live.
         stock_item.set_status(StockStatus::Live);
 
@@ -864,6 +1142,7 @@ impl ItemModule {
         .await
         {
             Ok(_) => {
+                ReliabilityService::mark_applied(conn, &permit.execution_id).await?;
                 stock_item.set_list_price(Some(post_price));
                 stock_item.add_price_history(PriceHistory::new(
                     chrono::Local::now().naive_local().to_string(),
@@ -872,6 +1151,13 @@ impl ItemModule {
             }
             Err(e) => {
                 if e.cause == "CooldownError" {
+                    ReliabilityService::mark_noop(
+                        conn,
+                        &permit.execution_id,
+                        "WFM cooldown prevented mutation",
+                    )
+                    .await?;
+
                     let (is_dirty, cooldown_info) =
                         set_cooldown(&mut stock_item.properties, &e.properties);
                     if is_dirty {
@@ -884,13 +1170,16 @@ impl ItemModule {
                         cooldown_info.format_remaining()
                     ));
                 } else {
+                    let error_message = e.to_string();
+                    ReliabilityService::mark_uncertain(conn, &permit.execution_id, &error_message)
+                        .await?;
+
                     return Err(e
                         .with_location(get_location!())
                         .with_context(entry.to_json()));
                 }
             }
         };
-
         // Flush stock-item changes to the database
         entry
             .finalize_stock_item(conn, &component, &mut stock_item, log_options)
@@ -1120,7 +1409,7 @@ impl ItemModule {
 
         // Get the current market snapshot for this item's sell orders
         let mut stock_syndicate = entry.get_syndicate_item_or_error(conn).await?;
-        let market_info = &entry.sell_market_info;
+        let market_info = entry.sell_market_info.clone();
 
         // Fetch existing order details and prepare mutable state
         let (order_id, current_order_price, mut properties, mut trade_operations) =

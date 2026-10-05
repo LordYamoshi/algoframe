@@ -24,20 +24,20 @@ pub async fn wfgdpr_load(
 ) -> Result<(), Error> {
     // Read the file content
     let log_parser = log_parser.lock()?;
-    log_parser
-        .warframe_gdpr()
-        .load(&file_path)
-        .map_err(|e| {
-            track_event!(
-                EventType::WarframeGdprLoad,
-                [
-                    ("success", "false".to_string()),
-                    ("error_type", "load_failed".to_string()),
-                ]
-            );
-            e.with_location(get_location!())
-        })?;
-    track_event!(EventType::WarframeGdprLoad, [("success", "true".to_string())]);
+    log_parser.warframe_gdpr().load(&file_path).map_err(|e| {
+        track_event!(
+            EventType::WarframeGdprLoad,
+            [
+                ("success", "false".to_string()),
+                ("error_type", "load_failed".to_string()),
+            ]
+        );
+        e.with_location(get_location!())
+    })?;
+    track_event!(
+        EventType::WarframeGdprLoad,
+        [("success", "true".to_string())]
+    );
     Ok(())
 }
 

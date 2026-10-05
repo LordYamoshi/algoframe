@@ -50,10 +50,7 @@ pub async fn get_wish_list_status_counts(
 pub async fn wish_list_create(input: CreateWishListItem) -> Result<Model, Error> {
     match handle_wish_list_by_entity(input, "", OrderType::Sell, &OperationSet::new()).await {
         Ok((_, item)) => {
-            track_event!(
-                EventType::WishListCreate,
-                [("success", "true".to_string())]
-            );
+            track_event!(EventType::WishListCreate, [("success", "true".to_string())]);
             return Ok(item);
         }
         Err(e) => {
@@ -88,10 +85,7 @@ pub async fn wish_list_bought(
     .await
     {
         Ok((_, updated_item)) => {
-            track_event!(
-                EventType::WishListBought,
-                [("success", "true".to_string())]
-            );
+            track_event!(EventType::WishListBought, [("success", "true".to_string())]);
             return Ok(updated_item);
         }
         Err(e) => {
@@ -111,18 +105,16 @@ pub async fn wish_list_bought(
 pub async fn wish_list_delete(id: i64) -> Result<Model, Error> {
     let conn = DATABASE.get().unwrap();
 
-    let item = WishListQuery::get_by_id(conn, id)
-        .await
-        .map_err(|e| {
-            track_event!(
-                EventType::WishListDelete,
-                [
-                    ("success", "false".to_string()),
-                    ("error_type", "query_failed".to_string()),
-                ]
-            );
-            e.with_location(get_location!())
-        })?;
+    let item = WishListQuery::get_by_id(conn, id).await.map_err(|e| {
+        track_event!(
+            EventType::WishListDelete,
+            [
+                ("success", "false".to_string()),
+                ("error_type", "query_failed".to_string()),
+            ]
+        );
+        e.with_location(get_location!())
+    })?;
     if item.is_none() {
         let err = Error::new(
             "Command::WishListDelete",
@@ -172,10 +164,7 @@ pub async fn wish_list_delete(id: i64) -> Result<Model, Error> {
         }
     }
 
-    track_event!(
-        EventType::WishListDelete,
-        [("success", "true".to_string())]
-    );
+    track_event!(EventType::WishListDelete, [("success", "true".to_string())]);
     Ok(item)
 }
 #[tauri::command]
@@ -213,10 +202,7 @@ pub async fn wish_list_update(input: UpdateWishList) -> Result<Model, Error> {
 
     match WishListMutation::update_by_id(conn, input).await {
         Ok(item) => {
-            track_event!(
-                EventType::WishListUpdate,
-                [("success", "true".to_string())]
-            );
+            track_event!(EventType::WishListUpdate, [("success", "true".to_string())]);
             Ok(item)
         }
         Err(e) => {

@@ -216,12 +216,14 @@ pub async fn handle_riven_by_model(
     // --------------------------------------------------
     match operation {
         OrderType::Sell => {
-            let status = handle_stock_riven_delete(conn, &model, &mut operations, component).await?;
+            let status =
+                handle_stock_riven_delete(conn, &model, &mut operations, component).await?;
             log(component, &model, &None, &status, flags, &operations);
         }
 
         OrderType::Buy => {
-            model = handle_stock_riven_create(conn, model, &mut operations, component, file).await?;
+            model =
+                handle_stock_riven_create(conn, model, &mut operations, component, file).await?;
             log(component, &model, &None, "Created", flags, &operations);
         }
     }

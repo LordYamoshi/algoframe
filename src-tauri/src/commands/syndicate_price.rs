@@ -34,10 +34,7 @@ pub async fn syndicate_item_prices_lookup(
             .log("syndicate_item_prices_lookup.log");
             track_event!(
                 EventType::SyndicateItemPricesLookup,
-                [
-                    ("success", "false".to_string()),
-                    ("error_type", error_type),
-                ]
+                [("success", "false".to_string()), ("error_type", error_type),]
             );
             return Err(error);
         }
@@ -125,10 +122,7 @@ pub async fn export_syndicate_item_price_data(
             .log("syndicate_item_prices_lookup.log");
             track_event!(
                 EventType::SyndicateItemPricesExport,
-                [
-                    ("success", "false".to_string()),
-                    ("error_type", error_type),
-                ]
+                [("success", "false".to_string()), ("error_type", error_type),]
             );
             return Err(error);
         }

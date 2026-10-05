@@ -16,6 +16,7 @@ import AuthenticatedGate from "../AuthenticatedGate";
 
 // Home Routes
 const PHome = lazy(routeLoaders.home);
+const AlgoFrameHubPage = lazy(routeLoaders.algoframeHub);
 
 // Auth Routes
 const PLogin = lazy(routeLoaders.login);
@@ -34,6 +35,9 @@ const PLiveScraper = lazy(routeLoaders.liveScraper);
 
 // Trading Analytics
 const TradingAnalyticsPage = lazy(routeLoaders.tradingAnalytics);
+
+// AlgoFrame Learning
+const LearningPage = lazy(routeLoaders.learning);
 
 // Warframe Market
 const PWarframeMarket = lazy(routeLoaders.warframeMarket);
@@ -91,7 +95,8 @@ export function AppRoutes() {
             </Route>
             <Route path="/" element={<LogInLayout />}>
               <Route element={<AuthenticatedGate goTo="/auth/login" />}>
-                <Route path="/" element={<PHome />} />
+                <Route path="/" element={<AlgoFrameHubPage />} />
+                <Route path="legacy-dashboard" element={<PHome />} />
                 <Route path="debug">
                   <Route index element={<PDebug />} />
                 </Route>
@@ -99,6 +104,7 @@ export function AppRoutes() {
                 <Route path="warframe-market" element={<PWarframeMarket />} />
                 <Route path="chat" element={<PWarframeMarketChat />} />
                 <Route path="trading_analytics" element={<TradingAnalyticsPage />} />
+                <Route path="learning" element={<LearningPage />} />
                 <Route path="trade_messages" element={<PTradeMessages />} />
                 <Route path="about" element={<AboutPage />} />
                 <Route path="wf_inventory" element={<WfInventoryPage />} />

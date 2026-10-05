@@ -104,10 +104,7 @@ pub async fn stock_riven_sell(
     .await
     {
         Ok((_, updated_item)) => {
-            track_event!(
-                EventType::StockRivenSell,
-                [("success", "true".to_string())]
-            );
+            track_event!(EventType::StockRivenSell, [("success", "true".to_string())]);
             return Ok(updated_item);
         }
         Err(e) => {
@@ -131,18 +128,16 @@ pub async fn stock_riven_delete(
     let app = app.lock()?.clone();
     let conn = DATABASE.get().unwrap();
 
-    let item = StockRivenQuery::get_by_id(conn, id)
-        .await
-        .map_err(|e| {
-            track_event!(
-                EventType::StockRivenDelete,
-                [
-                    ("success", "false".to_string()),
-                    ("error_type", "query_failed".to_string()),
-                ]
-            );
-            e.with_location(get_location!())
-        })?;
+    let item = StockRivenQuery::get_by_id(conn, id).await.map_err(|e| {
+        track_event!(
+            EventType::StockRivenDelete,
+            [
+                ("success", "false".to_string()),
+                ("error_type", "query_failed".to_string()),
+            ]
+        );
+        e.with_location(get_location!())
+    })?;
     if item.is_none() {
         let err = Error::new(
             "Command::StockRivenDelete",
@@ -181,10 +176,7 @@ pub async fn stock_riven_delete(
                     );
                     track_event!(
                         EventType::StockRivenDelete,
-                        [
-                            ("success", "false".to_string()),
-                            ("error_type", error_type),
-                        ]
+                        [("success", "false".to_string()), ("error_type", error_type),]
                     );
                     err
                 })?;

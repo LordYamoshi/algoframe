@@ -25,6 +25,7 @@ use crate::log_parser::init_detections;
 use crate::log_parser::LogParserState;
 use crate::wf_inventory::WFInventoryState;
 
+mod algoframe;
 mod app;
 mod cache;
 mod commands;
@@ -185,7 +186,7 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 let version = app.package_info().version.to_string();
                 let name = app.package_info().name.as_str();
-                let _ = window.set_title(&format!("{name} v{version} - By Kenya-DK"));
+                let _ = window.set_title(&format!("AlgoFrame v{version}"));
             }
             // Clone the handle for async task
             let app_handle = app.handle().clone();
@@ -257,7 +258,41 @@ pub fn run() {
             commands::live_scraper::live_scraper_get_state,
             commands::live_scraper::live_scraper_toggle,
             commands::live_scraper::live_scraper_get_interesting_wtb_items,
-            // Stock Item commands
+            // AlgoFrame Ultimate learning commands
+            commands::learning::learning_get_inspector,
+            commands::learning::learning_get_config,
+            commands::learning::learning_update_config,
+            commands::learning::learning_set_mode,
+            commands::learning::learning_reset,
+            commands::learning::learning_forget_item,
+            commands::learning::learning_forget_category,
+            commands::learning::learning_forget_before,
+            commands::learning::learning_upsert_event,
+            commands::learning::learning_refresh_events,
+            commands::learning::learning_upsert_graph_edge,
+            commands::learning::learning_get_decisions,
+            commands::learning::learning_replay_decision,
+            commands::learning::learning_counterfactual_replay,
+            commands::learning::learning_run_offline_evaluation,
+            commands::learning::learning_export_dataset,
+            // AlgoFrame Product Polish commands
+            commands::product::algoframe_product_health,
+            commands::product::algoframe_product_backup_database,
+            commands::product::algoframe_product_list_backups,
+            commands::product::algoframe_product_vacuum_database,
+            commands::product::algoframe_product_save_profile,
+            commands::product::algoframe_product_list_profiles,
+            commands::product::algoframe_product_apply_profile,
+            commands::product::algoframe_product_delete_profile,
+            // AlgoFrame Reliability commands
+            commands::reliability::reliability_get_status,
+            commands::reliability::reliability_update_config,
+            commands::reliability::reliability_trip_circuit,
+            commands::reliability::reliability_clear_circuit,
+            commands::reliability::reliability_resolve_execution,
+            commands::reliability::reliability_run_fake_market_suite,
+            commands::reliability::reliability_run_release_gate,
+            commands::reliability::reliability_get_release_gate_history, // Stock Item commands
             commands::stock_item::get_stock_item_pagination,
             commands::stock_item::get_stock_item_financial_report,
             commands::stock_item::get_stock_item_status_counts,

@@ -8,8 +8,7 @@ use wf_market::enums::OrderType;
 use crate::{
     handlers::handle_wish_list_by_entity,
     http_server::{respond_json, respond_text},
-    send_event,
-    track_event,
+    send_event, track_event,
     types::UIEvent,
 };
 

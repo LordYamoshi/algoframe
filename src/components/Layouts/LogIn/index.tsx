@@ -2,7 +2,7 @@ import { AddMetric } from "@api/index";
 import { Header } from "@components/Layouts/Shared/Header";
 import { NavbarLinkProps, NavbarMinimalColored } from "@components/Layouts/Shared/NavbarMinimalColored";
 import { useAuthContext } from "@contexts/auth.context";
-import { faBoxes, faBug, faEnvelope, faGlobe, faHome, faInfoCircle, faMessage } from "@fortawesome/free-solid-svg-icons";
+import { faBoxes, faBrain, faBug, faEnvelope, faGlobe, faHome, faInfoCircle, faMessage } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { useTranslateComponent } from "@hooks/useTranslate.hook";
 import { faWarframeMarket, facTradingAnalytics } from "@icons";
@@ -96,6 +96,15 @@ export function LogInLayout() {
         label: useTranslateNavBar("trading_analytics"),
         onClick: (e: NavbarLinkProps) => handleNavigate(e),
         onPrefetch: () => prefetchRoute("tradingAnalytics"),
+      },
+      {
+        align: "top",
+        id: "learning",
+        link: "learning",
+        icon: <FontAwesomeIcon size={"lg"} icon={faBrain} />,
+        label: "Learning",
+        onClick: (e: NavbarLinkProps) => handleNavigate(e),
+        onPrefetch: () => prefetchRoute("learning"),
       },
       {
         align: "top",

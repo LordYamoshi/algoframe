@@ -42,10 +42,7 @@ pub async fn order_refresh(
             );
             track_event!(
                 EventType::OrderRefresh,
-                [
-                    ("success", "false".to_string()),
-                    ("error_type", error_type),
-                ]
+                [("success", "false".to_string()), ("error_type", error_type),]
             );
             err.log("order_refresh.log");
             err
@@ -219,10 +216,7 @@ pub async fn order_delete_all(
             );
             track_event!(
                 EventType::OrderDeleteAll,
-                [
-                    ("success", "false".to_string()),
-                    ("error_type", error_type),
-                ]
+                [("success", "false".to_string()), ("error_type", error_type),]
             );
             err.log("order_delete_all.log");
             return Err(err);
@@ -278,17 +272,17 @@ pub async fn order_delete_by_id(
             );
             track_event!(
                 EventType::OrderDeleteById,
-                [
-                    ("success", "false".to_string()),
-                    ("error_type", error_type),
-                ]
+                [("success", "false".to_string()), ("error_type", error_type),]
             );
             err.log("order_delete_by_id.log");
             return Err(err);
         }
     }
 
-    track_event!(EventType::OrderDeleteById, [("success", "true".to_string())]);
+    track_event!(
+        EventType::OrderDeleteById,
+        [("success", "true".to_string())]
+    );
     Ok(())
 }
 #[tauri::command]

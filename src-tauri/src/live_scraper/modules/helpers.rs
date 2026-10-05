@@ -61,15 +61,19 @@ pub fn get_interesting_items(settings: &ItemSettings) -> Vec<ItemPriceInfo> {
 
     // Dynamic filter using closures
 
+    // Candidate discovery is intentionally broader than final execution.
+    // Ultimate V5 records skipped opportunities too, then the live ML/risk
+    // layer makes the strict decision after seeing the full order book.
     let profit_margin_filter = |item: &ItemPriceInfo| {
-        is_disabled(profit_margin) || item.profit_margin >= profit_margin as f64
+        is_disabled(profit_margin) || item.profit_margin >= (profit_margin as f64 * 0.50)
     };
 
     let volume_filter = |item: &ItemPriceInfo| {
         is_disabled(volume_threshold) || item.volume > volume_threshold as f64
     };
 
-    let profit_filter = |item: &ItemPriceInfo| is_disabled(profit) || item.profit > profit as f64;
+    let profit_filter =
+        |item: &ItemPriceInfo| is_disabled(profit) || item.profit > (profit as f64 * 0.50);
 
     let avg_price_filter =
         |item: &ItemPriceInfo| is_disabled(avg_price_cap) || item.avg_price <= avg_price_cap as f64;

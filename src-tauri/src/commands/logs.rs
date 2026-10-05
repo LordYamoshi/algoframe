@@ -4,13 +4,8 @@ use serde_json::{json, Value};
 use utils::{Error, Properties, ZipOptions};
 
 use crate::{
-    app::AppState,
-    helper,
-    live_scraper::LiveScraperState,
-    log_parser::LogParserState,
-    track_event,
-    utils::modules::states::get_app_error,
-    APP, SENSITIVE_FIELDS,
+    app::AppState, helper, live_scraper::LiveScraperState, log_parser::LogParserState, track_event,
+    utils::modules::states::get_app_error, APP, SENSITIVE_FIELDS,
 };
 
 use qf_api::enums::app_events::ApplicationEvent as EventType;

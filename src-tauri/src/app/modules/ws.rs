@@ -4,20 +4,20 @@ use std::sync::Mutex;
 
 use serde_json::json;
 use tauri::Manager;
-use utils::{
-    get_location, info, Error, LogLevel, LoggerOptions, OperationSet,
-};
+use utils::{get_location, info, Error, LogLevel, LoggerOptions, OperationSet};
 use wf_market::client::Authenticated as WFAuthenticated;
 use wf_market::enums::ApiVersion;
 use wf_market::types::websocket::{WsClient, WsMessage};
 use wf_market::types::{Chat, ChatMessage};
 use wf_market::Client as WFClient;
 
-use crate::app::AppState;
 use crate::app::types::app_state::get_active_chat_id;
+use crate::app::AppState;
 use crate::utils::modules::states;
 use crate::utils::ErrorFromExt;
-use crate::{clear_error, emit_error, emit_update_user, send_event, types::UIEvent, APP, HAS_STARTED};
+use crate::{
+    clear_error, emit_error, emit_update_user, send_event, types::UIEvent, APP, HAS_STARTED,
+};
 
 fn send_ws_state(key: impl Into<String>, data: &WsMessage) {
     let key = key.into();

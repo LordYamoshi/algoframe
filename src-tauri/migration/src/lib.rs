@@ -16,6 +16,8 @@ mod m20260710_124000_add_properties;
 mod m20260710_125000_drop_min_price_columns;
 mod m20260715_160000_make_properties_nullable;
 mod m20260801_000001_create_syndicate_item_table;
+mod m20261005_000001_create_algoframe_learning;
+mod m20261005_000002_create_algoframe_reliability;
 
 pub struct Migrator;
 
@@ -39,6 +41,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20260710_125000_drop_min_price_columns::Migration),
             Box::new(m20260715_160000_make_properties_nullable::Migration),
             Box::new(m20260801_000001_create_syndicate_item_table::Migration),
+            Box::new(m20261005_000001_create_algoframe_learning::Migration),
+            Box::new(m20261005_000002_create_algoframe_reliability::Migration),
         ]
     }
 }

@@ -61,18 +61,16 @@ pub async fn get_transaction_financial_report(
 pub async fn transaction_delete(id: i64) -> Result<transaction::Model, Error> {
     let conn = DATABASE.get().unwrap();
 
-    let item = TransactionQuery::find_by_id(conn, id)
-        .await
-        .map_err(|e| {
-            track_event!(
-                EventType::TransactionDelete,
-                [
-                    ("success", "false".to_string()),
-                    ("error_type", "query_failed".to_string()),
-                ]
-            );
-            e.with_location(get_location!())
-        })?;
+    let item = TransactionQuery::find_by_id(conn, id).await.map_err(|e| {
+        track_event!(
+            EventType::TransactionDelete,
+            [
+                ("success", "false".to_string()),
+                ("error_type", "query_failed".to_string()),
+            ]
+        );
+        e.with_location(get_location!())
+    })?;
     if item.is_none() {
         let err = Error::new(
             "Command::TransactionDelete",

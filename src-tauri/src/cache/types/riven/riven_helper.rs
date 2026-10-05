@@ -5,11 +5,7 @@ use entity::{
 use utils::{get_location, Error};
 
 use crate::{
-    cache::{
-        modules::ModModule,
-        types::*,
-        CacheState,
-    },
+    cache::{modules::ModModule, types::*, CacheState},
     wf_inventory::UpgradeFingerprint,
 };
 

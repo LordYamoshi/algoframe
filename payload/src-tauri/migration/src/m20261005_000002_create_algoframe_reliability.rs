@@ -1,0 +1,388 @@
+
+use sea_orm_migration::prelude::*;
+
+#[derive(DeriveMigrationName)]
+pub struct Migration;
+
+#[async_trait::async_trait]
+impl MigrationTrait for Migration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        create_execution_journal(manager).await?;
+        create_lifecycle_event(manager).await?;
+        create_circuit_event(manager).await?;
+        create_release_gate(manager).await?;
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(AlgoFrameReleaseGate::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(AlgoFrameCircuitEvent::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(AlgoFrameLifecycleEvent::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(AlgoFrameExecutionJournal::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
+            .await?;
+        Ok(())
+    }
+}
+
+async fn create_execution_journal(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(AlgoFrameExecutionJournal::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(AlgoFrameExecutionJournal::Id)
+                        .string()
+                        .not_null()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameExecutionJournal::DecisionId)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameExecutionJournal::ItemKey)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameExecutionJournal::WfmId)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameExecutionJournal::Side)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameExecutionJournal::Operation)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameExecutionJournal::TargetPrice)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameExecutionJournal::TargetQuantity)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameExecutionJournal::PreviousPrice)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameExecutionJournal::State)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameExecutionJournal::AttemptCount)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameExecutionJournal::Error)
+                        .text()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameExecutionJournal::CreatedAt)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameExecutionJournal::UpdatedAt)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameExecutionJournal::Payload)
+                        .text()
+                        .not_null(),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_algoframe_execution_decision")
+                .table(AlgoFrameExecutionJournal::Table)
+                .col(AlgoFrameExecutionJournal::DecisionId)
+                .if_not_exists()
+                .to_owned(),
+        )
+        .await?;
+
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_algoframe_execution_state_time")
+                .table(AlgoFrameExecutionJournal::Table)
+                .col(AlgoFrameExecutionJournal::State)
+                .col(AlgoFrameExecutionJournal::UpdatedAt)
+                .if_not_exists()
+                .to_owned(),
+        )
+        .await?;
+
+    Ok(())
+}
+
+async fn create_lifecycle_event(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(AlgoFrameLifecycleEvent::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(AlgoFrameLifecycleEvent::Id)
+                        .string()
+                        .not_null()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameLifecycleEvent::DecisionId)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameLifecycleEvent::ItemKey)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameLifecycleEvent::Side)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameLifecycleEvent::FromState)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameLifecycleEvent::ToState)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameLifecycleEvent::Reason)
+                        .text()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameLifecycleEvent::CreatedAt)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameLifecycleEvent::Payload)
+                        .text()
+                        .not_null(),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_algoframe_lifecycle_decision_time")
+                .table(AlgoFrameLifecycleEvent::Table)
+                .col(AlgoFrameLifecycleEvent::DecisionId)
+                .col(AlgoFrameLifecycleEvent::CreatedAt)
+                .if_not_exists()
+                .to_owned(),
+        )
+        .await?;
+
+    Ok(())
+}
+
+async fn create_circuit_event(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(AlgoFrameCircuitEvent::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(AlgoFrameCircuitEvent::Id)
+                        .string()
+                        .not_null()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameCircuitEvent::Code)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameCircuitEvent::Tripped)
+                        .boolean()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameCircuitEvent::Reason)
+                        .text()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameCircuitEvent::CreatedAt)
+                        .string()
+                        .not_null(),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_algoframe_circuit_time")
+                .table(AlgoFrameCircuitEvent::Table)
+                .col(AlgoFrameCircuitEvent::CreatedAt)
+                .if_not_exists()
+                .to_owned(),
+        )
+        .await?;
+
+    Ok(())
+}
+
+async fn create_release_gate(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(AlgoFrameReleaseGate::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(AlgoFrameReleaseGate::Id)
+                        .string()
+                        .not_null()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameReleaseGate::ChampionPolicy)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameReleaseGate::CandidatePolicy)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameReleaseGate::Passed)
+                        .boolean()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameReleaseGate::CreatedAt)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AlgoFrameReleaseGate::Payload)
+                        .text()
+                        .not_null(),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+    Ok(())
+}
+
+#[derive(DeriveIden)]
+enum AlgoFrameExecutionJournal {
+    #[sea_orm(iden = "algoframe_execution_journal")]
+    Table,
+    Id,
+    DecisionId,
+    ItemKey,
+    WfmId,
+    Side,
+    Operation,
+    TargetPrice,
+    TargetQuantity,
+    PreviousPrice,
+    State,
+    AttemptCount,
+    Error,
+    CreatedAt,
+    UpdatedAt,
+    Payload,
+}
+
+#[derive(DeriveIden)]
+enum AlgoFrameLifecycleEvent {
+    #[sea_orm(iden = "algoframe_lifecycle_event")]
+    Table,
+    Id,
+    DecisionId,
+    ItemKey,
+    Side,
+    FromState,
+    ToState,
+    Reason,
+    CreatedAt,
+    Payload,
+}
+
+#[derive(DeriveIden)]
+enum AlgoFrameCircuitEvent {
+    #[sea_orm(iden = "algoframe_circuit_event")]
+    Table,
+    Id,
+    Code,
+    Tripped,
+    Reason,
+    CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum AlgoFrameReleaseGate {
+    #[sea_orm(iden = "algoframe_release_gate")]
+    Table,
+    Id,
+    ChampionPolicy,
+    CandidatePolicy,
+    Passed,
+    CreatedAt,
+    Payload,
+}

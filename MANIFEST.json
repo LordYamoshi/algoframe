@@ -1,0 +1,58 @@
+{
+  "package": "AlgoFrame Reliability V1",
+  "requires": [
+    "AlgoFrame Ultimate V5.3",
+    "AlgoFrame Product Polish V1"
+  ],
+  "features": [
+    "authoritative lifecycle state machine",
+    "crash-safe idempotent execution journal",
+    "startup WFM reconciliation",
+    "circuit breakers",
+    "manual unknown-execution resolution",
+    "deterministic fake-market E2E suite",
+    "replay-based release gates"
+  ],
+  "files": {
+    "Apply-AlgoFrameReliabilityV1.ps1": {
+      "sha256": "f8fdfbeaa536656fedb6aa3dc615e66250cdc77d0e254ca04c2f9725fa34ee18",
+      "bytes": 25548
+    },
+    "IMPLEMENTATION_MAP.md": {
+      "sha256": "6c76391b2cea3c88ea5d8300bb6403a3d44faeab2d098da7fd1900f32c3df6f4",
+      "bytes": 1614
+    },
+    "README.md": {
+      "sha256": "90949298d90c43ed686bd6ed7fa0a718bf454712d3e16b77a83fcdfe65df6230",
+      "bytes": 6511
+    },
+    "RUNTIME_QA.md": {
+      "sha256": "a44b1687cef1dc8612b4598b9230ce3298bc5ad45ab2ce6052904458a513b098",
+      "bytes": 2656
+    },
+    "Validate-AlgoFrameReliabilityV1.ps1": {
+      "sha256": "7de97ceeb9d6b76c388e5955c8978fd3f10d3f31facc97b01b41dae39aa21491",
+      "bytes": 1460
+    },
+    "payload/src/components/AlgoFrame/Status/index.tsx": {
+      "sha256": "fa4b59bd062c3b3bb2004fb2be35dc1fc92e554f22d5cc6ba6d21f76f5114318",
+      "bytes": 4071
+    },
+    "payload/src/pages/algoframe/index.tsx": {
+      "sha256": "eae8117864437560eaebbcb7b8d591ec2576911760b6abf328753268f4285e04",
+      "bytes": 80833
+    },
+    "payload/src-tauri/migration/src/m20261005_000002_create_algoframe_reliability.rs": {
+      "sha256": "7103805fa853468b0474742388658de04086381a6f6a9434b9c2f333f8eec523",
+      "bytes": 11510
+    },
+    "payload/src-tauri/src/algoframe/reliability.rs": {
+      "sha256": "121f6e4a6f7f35149337bc7cf851f0aa3c55d525f2f9560b3b5fcaaa2e00618a",
+      "bytes": 65201
+    },
+    "payload/src-tauri/src/commands/reliability.rs": {
+      "sha256": "8edf819fdeb654b3c77424b76e3f9a7be92ac85a32d7230ec5f2a5e21179e364",
+      "bytes": 3058
+    }
+  }
+}

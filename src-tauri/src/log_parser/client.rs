@@ -1,8 +1,4 @@
-use crate::{
-    app::LogSettings,
-    helper,
-    log_parser::*,
-};
+use crate::{app::LogSettings, helper, log_parser::*};
 use std::{
     path::PathBuf,
     sync::{Arc, OnceLock},

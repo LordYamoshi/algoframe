@@ -4,7 +4,11 @@ use utils::SubType;
 use utils::{get_location, info, warning, Error, OperationSet};
 use wf_market::enums::OrderType;
 
-use crate::{handlers::*, utils::CreateStockItemExt, DATABASE};
+use crate::{
+    handlers::*,
+    utils::{modules::states, CreateStockItemExt, SubTypeExt},
+    DATABASE,
+};
 
 // --------------------------------------------------
 // Helper functions.
@@ -119,6 +123,19 @@ pub async fn handle_item_by_entity(
 
     let mut model = item.to_model();
 
+    // Snapshot AlgoFrame's live policy metadata before the WFM order is
+    // closed/updated. The transaction then becomes a supervised learning label.
+    let order_properties_snapshot = states::app_state()
+        .ok()
+        .and_then(|app| {
+            app.wfm_client.order().cache_orders().find_order(
+                &item.wfm_id,
+                &SubTypeExt::from_entity(item.sub_type.clone()),
+                order_type,
+            )
+        })
+        .and_then(|order| order.properties.properties.clone());
+
     // --------------------------------------------------
     // Stock mutation (buy / sell)
     // --------------------------------------------------
@@ -195,6 +212,23 @@ pub async fn handle_item_by_entity(
         )
         .log(file)
     })?;
+
+    if let Some(order_properties) = order_properties_snapshot {
+        let mut merged = tx
+            .properties
+            .take()
+            .unwrap_or_else(|| serde_json::json!({}));
+
+        if let (Some(base), Some(extra)) = (merged.as_object_mut(), order_properties.as_object()) {
+            for (key, value) in extra {
+                base.insert(key.clone(), value.clone());
+            }
+        } else {
+            merged = order_properties;
+        }
+
+        tx.properties = Some(merged);
+    }
 
     if order_type == OrderType::Sell {
         tx.transaction_type = TransactionType::Sale;

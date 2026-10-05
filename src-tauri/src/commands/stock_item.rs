@@ -91,10 +91,7 @@ pub async fn stock_item_sell(
     .await
     {
         Ok((_, updated_item)) => {
-            track_event!(
-                EventType::StockItemSell,
-                [("success", "true".to_string())]
-            );
+            track_event!(EventType::StockItemSell, [("success", "true".to_string())]);
             return Ok(updated_item);
         }
         Err(e) => {
@@ -114,18 +111,16 @@ pub async fn stock_item_sell(
 pub async fn stock_item_delete(id: i64) -> Result<stock_item::Model, Error> {
     let conn = DATABASE.get().unwrap();
 
-    let item = StockItemQuery::find_by_id(conn, id)
-        .await
-        .map_err(|e| {
-            track_event!(
-                EventType::StockItemDelete,
-                [
-                    ("success", "false".to_string()),
-                    ("error_type", "query_failed".to_string()),
-                ]
-            );
-            e.with_location(get_location!())
-        })?;
+    let item = StockItemQuery::find_by_id(conn, id).await.map_err(|e| {
+        track_event!(
+            EventType::StockItemDelete,
+            [
+                ("success", "false".to_string()),
+                ("error_type", "query_failed".to_string()),
+            ]
+        );
+        e.with_location(get_location!())
+    })?;
     if item.is_none() {
         let err = Error::new(
             "Command::StockItemDelete",

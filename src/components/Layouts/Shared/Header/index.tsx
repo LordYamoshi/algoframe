@@ -1,3 +1,4 @@
+import { AlgoFrameStatus } from "@components/AlgoFrame/Status";
 import { Group, useMantineTheme } from "@mantine/core";
 import classes from "./Header.module.css";
 import { Logo } from "../Logo";
@@ -28,7 +29,10 @@ export function Header({}: HeaderProps) {
     <>
       <Group ml={"sm"} mr={"sm"} justify="space-between" className={classes.header}>
         <Logo color={theme.other.logoColor} />
-        <Clock />
+        <Group gap="xs">
+          <AlgoFrameStatus />
+          <Clock />
+        </Group>
         <UserMenu />
       </Group>
       <Ticker

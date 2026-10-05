@@ -106,18 +106,16 @@ pub async fn trade_entry_create_multiple(mut inputs: Vec<CreateTradeEntry>) -> R
 pub async fn trade_entry_delete(id: i64) -> Result<Model, Error> {
     let conn = DATABASE.get().unwrap();
 
-    let item = TradeEntryQuery::get_by_id(conn, id)
-        .await
-        .map_err(|e| {
-            track_event!(
-                EventType::TradeEntryDelete,
-                [
-                    ("success", "false".to_string()),
-                    ("error_type", "query_failed".to_string()),
-                ]
-            );
-            e.with_location(get_location!())
-        })?;
+    let item = TradeEntryQuery::get_by_id(conn, id).await.map_err(|e| {
+        track_event!(
+            EventType::TradeEntryDelete,
+            [
+                ("success", "false".to_string()),
+                ("error_type", "query_failed".to_string()),
+            ]
+        );
+        e.with_location(get_location!())
+    })?;
     if item.is_none() {
         let err = Error::new(
             "Command::TradeEntryDelete",
